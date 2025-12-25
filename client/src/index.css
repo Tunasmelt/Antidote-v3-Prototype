@@ -1,0 +1,155 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Cosmic Dark Theme Palette */
+  --color-background: hsl(240 41% 10%); /* Deep Space #0f0f23 */
+  --color-foreground: hsl(240 10% 95%);
+
+  --color-card: hsl(240 35% 14%);
+  --color-card-foreground: hsl(240 10% 95%);
+
+  --color-popover: hsl(240 35% 14%);
+  --color-popover-foreground: hsl(240 10% 95%);
+
+  --color-primary: hsl(265 83% 58%); /* #7c3aed Purple */
+  --color-primary-foreground: hsl(0 0% 100%);
+
+  --color-secondary: hsl(189 94% 43%); /* #06b6d4 Cyan */
+  --color-secondary-foreground: hsl(240 41% 10%);
+
+  --color-muted: hsl(240 30% 20%);
+  --color-muted-foreground: hsl(240 10% 70%);
+
+  --color-accent: hsl(265 83% 58%);
+  --color-accent-foreground: hsl(0 0% 100%);
+
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  --color-border: hsl(240 30% 25%);
+  --color-input: hsl(240 30% 25%);
+  --color-ring: hsl(265 83% 58%);
+
+  --color-chart-1: hsl(265 83% 58%);
+  --color-chart-2: hsl(189 94% 43%);
+  --color-chart-3: hsl(328 84% 60%); /* Pink */
+  --color-chart-4: hsl(45 93% 57%); /* Gold */
+  --color-chart-5: hsl(240 35% 14%);
+
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'Space Mono', monospace;
+  --font-pixel: 'Press Start 2P', cursive;
+  
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground selection:bg-primary selection:text-white;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground;
+}
+
+/* Utilities for retro/cosmic feel */
+.text-glow {
+  text-shadow: 0 0 10px currentColor;
+}
+
+.box-glow {
+  box-shadow: 0 0 20px -5px currentColor;
+}
+
+.pixel-corners {
+  clip-path: polygon(
+    0px 10px,
+    10px 10px,
+    10px 0px,
+    calc(100% - 10px) 0px,
+    calc(100% - 10px) 10px,
+    100% 10px,
+    100% calc(100% - 10px),
+    calc(100% - 10px) calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    10px 100%,
+    10px calc(100% - 10px),
+    0px calc(100% - 10px)
+  );
+}
+
+/* Shooting Star Animation */
+@keyframes shootingStar {
+  0% {
+    transform: translateX(-200px) translateY(-200px) scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(600px) translateY(600px) scaleX(0);
+    opacity: 0;
+  }
+}
+
+@keyframes shootingStarReverse {
+  0% {
+    transform: translateX(200px) translateY(-200px) scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-600px) translateY(600px) scaleX(0);
+    opacity: 0;
+  }
+}
+
+.shooting-star {
+  animation: shootingStar 3s ease-in forwards;
+  position: absolute;
+  width: 200px;
+  height: 2px;
+  background: linear-gradient(to right, rgba(124, 58, 237, 0), rgba(124, 58, 237, 1), rgba(124, 58, 237, 0));
+  box-shadow: 0 0 20px 2px rgba(124, 58, 237, 0.8);
+  filter: drop-shadow(0 0 10px rgba(124, 58, 237, 0.6));
+}
+
+.shooting-star.reverse {
+  animation: shootingStarReverse 3s ease-in forwards;
+}
+
+.shooting-star.cyan {
+  background: linear-gradient(to right, rgba(6, 182, 212, 0), rgba(6, 182, 212, 1), rgba(6, 182, 212, 0));
+  box-shadow: 0 0 20px 2px rgba(6, 182, 212, 0.8);
+  filter: drop-shadow(0 0 10px rgba(6, 182, 212, 0.6));
+}
+
+.shooting-star.pink {
+  background: linear-gradient(to right, rgba(236, 72, 153, 0), rgba(236, 72, 153, 1), rgba(236, 72, 153, 0));
+  box-shadow: 0 0 20px 2px rgba(236, 72, 153, 0.8);
+  filter: drop-shadow(0 0 10px rgba(236, 72, 153, 0.6));
+}
