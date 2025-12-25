@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 android/app/build/
 .local/
+.env
