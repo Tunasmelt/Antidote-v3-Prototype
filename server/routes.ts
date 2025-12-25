@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { spotifyService } from "./services/spotify";
 import { analysisService } from "./services/analysis";
+import { fetchExternalPlaylist } from "./services/providers";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -17,82 +18,142 @@ export async function registerRoutes(
       }
 
       const playlistId = spotifyService.parseIdFromUrl(url);
-      if (!playlistId) {
-        return res.status(400).json({ message: "Invalid Spotify Playlist URL" });
-      }
 
-      // 1. Fetch Playlist Metadata
-      const playlist = await spotifyService.getPlaylist(playlistId);
-      
-      // 2. Fetch Tracks
-      const tracksItems = await spotifyService.getPlaylistTracks(playlistId);
-      const trackIds = tracksItems
-        .map((item: any) => item.track?.id)
-        .filter((id: string) => !!id);
-
-      // 3. Fetch Audio Features
-      const features = await spotifyService.getAudioFeatures(trackIds);
-      const validFeatures = features.filter(f => f);
-
-      // 4. Fetch Artists & Genres
-      const artistIds = new Set<string>();
-      tracksItems.forEach((item: any) => {
-        item.track?.artists?.forEach((artist: any) => {
-          if (artist.id) artistIds.add(artist.id);
+      if (playlistId) {
+        // Existing Spotify flow
+        const playlist = await spotifyService.getPlaylist(playlistId);
+        const tracksItems = await spotifyService.getPlaylistTracks(playlistId);
+        const trackIds = tracksItems.map((item: any) => item.track?.id).filter((id: string) => !!id);
+        const features = await spotifyService.getAudioFeatures(trackIds);
+        const validFeatures = features.filter(f => f);
+        const artistIds = new Set<string>();
+        tracksItems.forEach((item: any) => {
+          item.track?.artists?.forEach((artist: any) => {
+            if (artist.id) artistIds.add(artist.id);
+          });
         });
-      });
-
-      const artists = await spotifyService.getArtists(Array.from(artistIds));
-      const genreCounts: Record<string, number> = {};
-      
-      artists.forEach((artist: any) => {
-        artist.genres?.forEach((genre: string) => {
-          // Capitalize first letter
-          const formattedGenre = genre.charAt(0).toUpperCase() + genre.slice(1);
-          genreCounts[formattedGenre] = (genreCounts[formattedGenre] || 0) + 1;
+        const artists = await spotifyService.getArtists(Array.from(artistIds));
+        const genreCounts: Record<string, number> = {};
+        artists.forEach((artist: any) => {
+          artist.genres?.forEach((genre: string) => {
+            const formattedGenre = genre.charAt(0).toUpperCase() + genre.slice(1);
+            genreCounts[formattedGenre] = (genreCounts[formattedGenre] || 0) + 1;
+          });
         });
-      });
-
-      const totalGenreCount = Object.values(genreCounts).reduce((a, b) => a + b, 0);
-      
-      const genreDistribution = Object.entries(genreCounts)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([name, count]) => ({
-          name,
-          value: totalGenreCount ? Math.round((count / totalGenreCount) * 100) : 0
-        }));
-
-      // 5. Calculate Audio DNA (Averages)
-      const audioDna = {
-        energy: Math.round(validFeatures.reduce((sum, f) => sum + f.energy, 0) / validFeatures.length * 100) || 0,
-        danceability: Math.round(validFeatures.reduce((sum, f) => sum + f.danceability, 0) / validFeatures.length * 100) || 0,
-        valence: Math.round(validFeatures.reduce((sum, f) => sum + f.valence, 0) / validFeatures.length * 100) || 0,
-        acousticness: Math.round(validFeatures.reduce((sum, f) => sum + f.acousticness, 0) / validFeatures.length * 100) || 0,
-        instrumentalness: Math.round(validFeatures.reduce((sum, f) => sum + f.instrumentalness, 0) / validFeatures.length * 100) || 0,
-        tempo: Math.round(validFeatures.reduce((sum, f) => sum + f.tempo, 0) / validFeatures.length) || 0,
-      };
-
-      // 6. Advanced Analysis (Health, Personality, Rating, Subgenres)
-      const health = analysisService.calculateHealth(validFeatures, tracksItems.length, Object.keys(genreCounts).length);
-      const personality = analysisService.determinePersonality(validFeatures, Object.keys(genreCounts));
-      const rating = analysisService.calculateRating(health.score, tracksItems.length);
-      const subgenres = analysisService.classifySubgenres(genreCounts);
-
-      // Save to Database
-      let dbPlaylist = await storage.getPlaylistBySpotifyId(playlistId);
-      if (!dbPlaylist) {
-        dbPlaylist = await storage.createPlaylist({
-          spotifyId: playlistId,
-          name: playlist.name,
-          description: playlist.description || "",
+        const totalGenreCount = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+        const genreDistribution = Object.entries(genreCounts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 5)
+          .map(([name, count]) => ({ name, value: totalGenreCount ? Math.round((count / totalGenreCount) * 100) : 0 }));
+        const audioDna = {
+          energy: Math.round(validFeatures.reduce((sum, f) => sum + f.energy, 0) / validFeatures.length * 100) || 0,
+          danceability: Math.round(validFeatures.reduce((sum, f) => sum + f.danceability, 0) / validFeatures.length * 100) || 0,
+          valence: Math.round(validFeatures.reduce((sum, f) => sum + f.valence, 0) / validFeatures.length * 100) || 0,
+          acousticness: Math.round(validFeatures.reduce((sum, f) => sum + f.acousticness, 0) / validFeatures.length * 100) || 0,
+          instrumentalness: Math.round(validFeatures.reduce((sum, f) => sum + f.instrumentalness, 0) / validFeatures.length * 100) || 0,
+          tempo: Math.round(validFeatures.reduce((sum, f) => sum + f.tempo, 0) / validFeatures.length) || 0,
+        };
+        const health = analysisService.calculateHealth(validFeatures, tracksItems.length, Object.keys(genreCounts).length);
+        const personality = analysisService.determinePersonality(validFeatures, Object.keys(genreCounts));
+        const rating = analysisService.calculateRating(health.score, tracksItems.length);
+        const subgenres = analysisService.classifySubgenres(genreCounts);
+        let dbPlaylist = await storage.getPlaylistBySpotifyId(playlistId);
+        if (!dbPlaylist) {
+          dbPlaylist = await storage.createPlaylist({
+            spotifyId: playlistId,
+            name: playlist.name,
+            description: playlist.description || "",
+            owner: playlist.owner.display_name,
+            coverUrl: playlist.images?.[0]?.url,
+            trackCount: playlist.tracks.total,
+            url: url,
+          });
+        }
+        await storage.createAnalysis({
+          playlistId: dbPlaylist.id,
+          personalityType: personality.type,
+          personalityDescription: personality.description,
+          totalScore: health.score,
+          audioDna,
+          genreDistribution,
+          subgenreDistribution: subgenres,
+          topTracks: tracksItems.slice(0, 5).map((item: any) => ({
+            name: item.track.name,
+            artist: item.track.artists[0].name,
+            albumArt: item.track.album.images?.[2]?.url
+          })),
+        });
+        const result = {
+          playlistName: playlist.name,
           owner: playlist.owner.display_name,
           coverUrl: playlist.images?.[0]?.url,
           trackCount: playlist.tracks.total,
-          url: url,
-        });
+          audioDna,
+          personalityType: personality.type,
+          personalityDescription: personality.description,
+          genreDistribution,
+          subgenres,
+          healthScore: health.score,
+          healthStatus: health.status,
+          overallRating: rating.rating,
+          ratingDescription: rating.description,
+          topTracks: tracksItems.slice(0, 5).map((item: any) => ({
+            name: item.track.name,
+            artist: item.track.artists[0].name,
+            albumArt: item.track.album.images?.[2]?.url
+          }))
+        };
+        return res.json(result);
       }
 
+      // External provider flow: resolve to Spotify via search
+      const external = await fetchExternalPlaylist(url);
+      const matches = await Promise.all(
+        external.tracks.map(t => spotifyService.searchTrackByQuery(`${t.title} ${t.artist || ""}`))
+      );
+      const matched = matches.filter(Boolean) as any[];
+      const trackIds = matched.map(m => m.id);
+      const artistIds = Array.from(new Set(matched.map(m => m.artistId).filter(Boolean)));
+      const features = await spotifyService.getAudioFeatures(trackIds);
+      const validFeatures = features.filter(f => f);
+      const artists = artistIds.length ? await spotifyService.getArtists(artistIds) : [];
+      const genreCounts: Record<string, number> = {};
+      artists.forEach((artist: any) => {
+        artist.genres?.forEach((genre: string) => {
+          const formatted = genre.charAt(0).toUpperCase() + genre.slice(1);
+          genreCounts[formatted] = (genreCounts[formatted] || 0) + 1;
+        });
+      });
+      const totalGenreCount = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+      const genreDistribution = Object.entries(genreCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, value: totalGenreCount ? Math.round((count / totalGenreCount) * 100) : 0 }));
+      const audioDna = {
+        energy: Math.round(validFeatures.reduce((sum, f) => sum + f.energy, 0) / (validFeatures.length || 1) * 100) || 0,
+        danceability: Math.round(validFeatures.reduce((sum, f) => sum + f.danceability, 0) / (validFeatures.length || 1) * 100) || 0,
+        valence: Math.round(validFeatures.reduce((sum, f) => sum + f.valence, 0) / (validFeatures.length || 1) * 100) || 0,
+        acousticness: Math.round(validFeatures.reduce((sum, f) => sum + f.acousticness, 0) / (validFeatures.length || 1) * 100) || 0,
+        instrumentalness: Math.round(validFeatures.reduce((sum, f) => sum + f.instrumentalness, 0) / (validFeatures.length || 1) * 100) || 0,
+        tempo: Math.round(validFeatures.reduce((sum, f) => sum + f.tempo, 0) / (validFeatures.length || 1)) || 0,
+      };
+      const health = analysisService.calculateHealth(validFeatures, external.tracks.length, Object.keys(genreCounts).length);
+      const personality = analysisService.determinePersonality(validFeatures, Object.keys(genreCounts));
+      const rating = analysisService.calculateRating(health.score, external.tracks.length);
+      const subgenres = analysisService.classifySubgenres(genreCounts);
+      // Save external as synthetic playlist
+      let dbPlaylist = await storage.getPlaylistBySpotifyId(external.id);
+      if (!dbPlaylist) {
+        dbPlaylist = await storage.createPlaylist({
+          spotifyId: external.id,
+          name: external.name,
+          description: "Imported external playlist",
+          owner: "External",
+          coverUrl: null,
+          trackCount: external.tracks.length,
+          url,
+        });
+      }
       await storage.createAnalysis({
         playlistId: dbPlaylist.id,
         personalityType: personality.type,
@@ -101,18 +162,17 @@ export async function registerRoutes(
         audioDna,
         genreDistribution,
         subgenreDistribution: subgenres,
-        topTracks: tracksItems.slice(0, 5).map((item: any) => ({
-          name: item.track.name,
-          artist: item.track.artists[0].name,
-          albumArt: item.track.album.images?.[2]?.url
+        topTracks: matched.slice(0, 5).map(m => ({
+          name: m.name,
+          artist: m.artist,
+          albumArt: m.albumArt
         })),
       });
-
       const result = {
-        playlistName: playlist.name,
-        owner: playlist.owner.display_name,
-        coverUrl: playlist.images?.[0]?.url,
-        trackCount: playlist.tracks.total,
+        playlistName: external.name,
+        owner: "External",
+        coverUrl: null,
+        trackCount: external.tracks.length,
         audioDna,
         personalityType: personality.type,
         personalityDescription: personality.description,
@@ -122,14 +182,13 @@ export async function registerRoutes(
         healthStatus: health.status,
         overallRating: rating.rating,
         ratingDescription: rating.description,
-        topTracks: tracksItems.slice(0, 5).map((item: any) => ({
-          name: item.track.name,
-          artist: item.track.artists[0].name,
-          albumArt: item.track.album.images?.[2]?.url // Small image
+        topTracks: matched.slice(0, 5).map(m => ({
+          name: m.name,
+          artist: m.artist,
+          albumArt: m.albumArt
         }))
       };
-
-      res.json(result);
+      return res.json(result);
     } catch (error: any) {
       console.error("Analysis Error:", error);
       res.status(500).json({ message: "Failed to analyze playlist", error: error.message });
@@ -143,25 +202,40 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Both playlist URLs are required" });
       }
 
-      const id1 = spotifyService.parseIdFromUrl(url1);
-      const id2 = spotifyService.parseIdFromUrl(url2);
+      const resolve = async (url: string) => {
+        const id = spotifyService.parseIdFromUrl(url);
+        if (id) {
+          const p = await spotifyService.getPlaylist(id);
+          const items = await spotifyService.getPlaylistTracks(id);
+          const ids = items.map((i: any) => i.track?.id).filter((x: string) => !!x);
+          return { p, items, ids };
+        }
+        const ext = await fetchExternalPlaylist(url);
+        const matches = await Promise.all(ext.tracks.map(t => spotifyService.searchTrackByQuery(`${t.title} ${t.artist || ""}`)));
+        const matched = matches.filter(Boolean) as any[];
+        const ids = matched.map(m => m.id);
+        const items = matched.map(m => ({
+          track: {
+            id: m.id,
+            name: m.name,
+            artists: [{ name: m.artist, id: m.artistId }],
+            album: { images: [{ url: m.albumArt }] }
+          }
+        }));
+        const p = {
+          id: ext.id,
+          name: ext.name,
+          owner: { display_name: "External" },
+          images: [],
+          tracks: { total: ids.length }
+        };
+        return { p, items, ids };
+      };
 
-      if (!id1 || !id2) {
-        return res.status(400).json({ message: "Invalid Spotify Playlist URLs" });
-      }
-
-      const [p1, p2] = await Promise.all([
-        spotifyService.getPlaylist(id1),
-        spotifyService.getPlaylist(id2)
+      const [{ p: p1, items: t1Items, ids: t1Ids }, { p: p2, items: t2Items, ids: t2Ids }] = await Promise.all([
+        resolve(url1),
+        resolve(url2)
       ]);
-
-      const [t1Items, t2Items] = await Promise.all([
-        spotifyService.getPlaylistTracks(id1),
-        spotifyService.getPlaylistTracks(id2)
-      ]);
-
-      const t1Ids = t1Items.map((i: any) => i.track?.id).filter((id: string) => !!id);
-      const t2Ids = t2Items.map((i: any) => i.track?.id).filter((id: string) => !!id);
 
       const [f1, f2] = await Promise.all([
         spotifyService.getAudioFeatures(t1Ids),

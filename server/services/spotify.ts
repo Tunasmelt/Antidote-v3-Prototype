@@ -94,5 +94,19 @@ export const spotifyService = {
     await ensureToken();
     const response = await spotifyApi.getRecommendations(options);
     return response.body.tracks;
+  },
+  searchTrackByQuery: async (query: string) => {
+    await ensureToken();
+    const res = await spotifyApi.searchTracks(query, { limit: 1 });
+    const item = res.body.tracks?.items?.[0];
+    if (!item) return null;
+    return {
+      id: item.id,
+      name: item.name,
+      artist: item.artists[0]?.name,
+      artistId: item.artists[0]?.id,
+      albumArt: item.album.images[0]?.url,
+      previewUrl: item.preview_url,
+    };
   }
 };
