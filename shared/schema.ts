@@ -44,7 +44,7 @@ export const battles = pgTable("battles", {
   playlistAId: integer("playlist_a_id").references(() => playlists.id),
   playlistBId: integer("playlist_b_id").references(() => playlists.id),
   compatibilityScore: integer("compatibility_score"),
-  winnerId: integer("winner_id").references(() => playlists.id),
+  winnerId: integer("winner_id"),
   winnerReason: text("winner_reason"),
   sharedTracks: jsonb("shared_tracks"),
   sharedArtists: jsonb("shared_artists"),
@@ -69,9 +69,36 @@ export const insertAnalysisSchema = createInsertSchema(analyses).omit({
   createdAt: true 
 });
 
-export const insertBattleSchema = createInsertSchema(battles).omit({ 
-  id: true, 
-  createdAt: true 
+export const insertBattleSchema = createInsertSchema(battles).omit({
+  id: true,
+  createdAt: true
+});
+
+// API Request Validation Schemas
+export const analyzeRequestSchema = z.object({
+  url: z.string().url().refine(url => url.includes('spotify.com') || url.includes('music.apple.com') || url.includes('soundcloud.com') || url.includes('youtube.com'), {
+    message: "URL must be from a supported music platform"
+  })
+});
+
+export const battleRequestSchema = z.object({
+  url1: z.string().url(),
+  url2: z.string().url()
+});
+
+export const createPlaylistSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  tracks: z.array(z.string()).min(1),
+  coverUrl: z.string().url().optional()
+});
+
+export const recommendationsQuerySchema = z.object({
+  type: z.enum(['best_next_track', 'mood_safe_pick', 'rare_match', 'return_to_familiar', 'short_session', 'energy_adjustment']).optional(),
+  playlistId: z.string().optional(),
+  seed_tracks: z.string().optional(),
+  seed_genres: z.string().optional(),
+  seed_artists: z.string().optional()
 });
 
 export type User = typeof users.$inferSelect;

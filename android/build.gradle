@@ -1,4 +1,11 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
+// Add Kotlin JVM plugin to the buildscript classpath
+buildscript {
+    ext.kotlin_version = '1.9.10' // or the version you use
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
 
 buildscript {
     
@@ -24,6 +31,39 @@ allprojects {
     }
 }
 
+// Enforce Java 17 via Gradle toolchains for all subprojects
+subprojects {
+    plugins.withType(JavaPlugin).configureEach {
+        java {
+            toolchain {
+                languageVersion = JavaLanguageVersion.of(17)
+            }
+        }
+    }
+}
+
+// Ensure Capacitor Android library compiles with Java 17
+project(':capacitor-android') {
+    afterEvaluate {
+        if (plugins.hasPlugin('com.android.library')) {
+            android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
+}
+
+
+subprojects {
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = JavaVersion.VERSION_17.toString()
+        targetCompatibility = JavaVersion.VERSION_17.toString()
+    }
 }

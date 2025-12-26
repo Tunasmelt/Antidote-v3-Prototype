@@ -132,30 +132,266 @@ export const analysisService = {
     return { rating, description };
   },
 
-  // 5. Battle Compatibility
+  // 5. Enhanced Battle Compatibility with Weighted Similarity
   calculateCompatibility(f1: AudioFeatures[], f2: AudioFeatures[]): number {
-    // Cosine Similarity of average vectors
     const avg1 = this.getAverageFeatures(f1);
     const avg2 = this.getAverageFeatures(f2);
 
-    const dotProduct = 
-      (avg1.energy * avg2.energy) +
-      (avg1.danceability * avg2.danceability) +
-      (avg1.valence * avg2.valence) +
-      (avg1.acousticness * avg2.acousticness) +
-      (avg1.instrumentalness * avg2.instrumentalness);
+    // Weighted cosine similarity with different importance for each feature
+    const weights = {
+      energy: 0.25,        // High energy compatibility is important
+      danceability: 0.20,  // Dance rhythm compatibility
+      valence: 0.20,       // Mood compatibility
+      acousticness: 0.15,  // Production style compatibility
+      instrumentalness: 0.20, // Vocal vs instrumental preference
+    };
 
-    const mag1 = Math.sqrt(
-      avg1.energy**2 + avg1.danceability**2 + avg1.valence**2 + avg1.acousticness**2 + avg1.instrumentalness**2
-    );
-    const mag2 = Math.sqrt(
-      avg2.energy**2 + avg2.danceability**2 + avg2.valence**2 + avg2.acousticness**2 + avg2.instrumentalness**2
-    );
+    let weightedDotProduct = 0;
+    let weightSum1 = 0;
+    let weightSum2 = 0;
+
+    // Calculate weighted dot product and magnitudes
+    Object.entries(weights).forEach(([feature, weight]) => {
+      const val1 = avg1[feature as keyof typeof avg1] || 0;
+      const val2 = avg2[feature as keyof typeof avg2] || 0;
+
+      weightedDotProduct += (val1 * val2) * weight;
+      weightSum1 += (val1 * val1) * weight;
+      weightSum2 += (val2 * val2) * weight;
+    });
+
+    const mag1 = Math.sqrt(weightSum1);
+    const mag2 = Math.sqrt(weightSum2);
 
     if (mag1 === 0 || mag2 === 0) return 0;
 
-    const similarity = dotProduct / (mag1 * mag2);
-    return Math.round(similarity * 100);
+    const similarity = weightedDotProduct / (mag1 * mag2);
+
+    // Apply sigmoid transformation for better distribution
+    const sigmoidSimilarity = 1 / (1 + Math.exp(-5 * (similarity - 0.5)));
+
+    return Math.round(sigmoidSimilarity * 100);
+  },
+
+  // 6. Enhanced Recommendation Strategy Engine
+  generateRecommendationStrategy(
+    playlistFeatures: AudioFeatures[],
+    playlistGenres: string[],
+    strategy: string,
+    targetTrackCount: number = 10
+  ) {
+    const avgFeatures = this.getAverageFeatures(playlistFeatures);
+
+    const baseOptions: any = {
+      limit: targetTrackCount,
+      seed_genres: this.extractTopGenres(playlistGenres).slice(0, 2),
+    };
+
+    switch (strategy) {
+      case 'best_next_track':
+        // AI picks perfect continuation - balance similarity with slight progression
+        return {
+          ...baseOptions,
+          target_energy: this.adjustFeature(avgFeatures.energy, 0.05), // Slight energy progression
+          target_danceability: this.adjustFeature(avgFeatures.danceability, 0.03),
+          target_valence: avgFeatures.valence,
+          min_popularity: 30, // Avoid too obscure tracks
+          max_popularity: 80, // Avoid overplayed tracks
+        };
+
+      case 'mood_safe_pick':
+        // Maintains current vibe with minimal variance
+        return {
+          ...baseOptions,
+          target_energy: this.clampFeature(avgFeatures.energy, 0.1), // ±0.1 range
+          target_danceability: this.clampFeature(avgFeatures.danceability, 0.1),
+          target_valence: this.clampFeature(avgFeatures.valence, 0.1),
+          target_acousticness: this.clampFeature(avgFeatures.acousticness, 0.15),
+          min_popularity: 20,
+          max_popularity: 85,
+        };
+
+      case 'rare_match':
+        // Hidden gems that match taste but are less popular
+        return {
+          ...baseOptions,
+          target_energy: avgFeatures.energy,
+          target_danceability: avgFeatures.danceability,
+          target_valence: avgFeatures.valence,
+          target_acousticness: avgFeatures.acousticness,
+          max_popularity: 40, // Only less popular tracks
+          min_instrumentalness: Math.max(0, avgFeatures.instrumentalness - 0.1),
+          max_instrumentalness: Math.min(1, avgFeatures.instrumentalness + 0.1),
+        };
+
+      case 'return_to_familiar':
+        // Deep cuts from loved artists - higher instrumental tolerance
+        return {
+          ...baseOptions,
+          target_energy: this.adjustFeature(avgFeatures.energy, -0.1), // Slightly calmer
+          target_danceability: avgFeatures.danceability,
+          target_valence: this.adjustFeature(avgFeatures.valence, 0.1), // Slightly happier
+          min_instrumentalness: Math.max(0, avgFeatures.instrumentalness - 0.2),
+          max_instrumentalness: Math.min(1, avgFeatures.instrumentalness + 0.2),
+          min_popularity: 15,
+          max_popularity: 70,
+        };
+
+      case 'short_session':
+        // Perfect for quick breaks - upbeat but not overwhelming
+        return {
+          ...baseOptions,
+          target_energy: this.clampFeature(Math.max(avgFeatures.energy, 0.4), 0.2),
+          target_danceability: this.clampFeature(Math.max(avgFeatures.danceability, 0.5), 0.2),
+          target_valence: this.clampFeature(Math.max(avgFeatures.valence, 0.5), 0.2),
+          max_duration_ms: 300000, // 5 minutes max
+          min_popularity: 25,
+          max_popularity: 75,
+        };
+
+      case 'energy_adjustment':
+        // Gradual energy shift based on current playlist
+        const currentEnergy = avgFeatures.energy;
+        let energyTarget: number;
+
+        if (currentEnergy < 0.4) {
+          // Low energy - boost up
+          energyTarget = Math.min(0.8, currentEnergy + 0.3);
+        } else if (currentEnergy > 0.7) {
+          // High energy - bring down
+          energyTarget = Math.max(0.3, currentEnergy - 0.3);
+        } else {
+          // Medium energy - moderate adjustment
+          energyTarget = currentEnergy > 0.55 ? currentEnergy - 0.2 : currentEnergy + 0.2;
+        }
+
+        return {
+          ...baseOptions,
+          target_energy: energyTarget,
+          target_danceability: this.adjustFeature(avgFeatures.danceability, 0.1),
+          target_valence: currentEnergy < 0.4 ? Math.min(0.8, avgFeatures.valence + 0.2) : avgFeatures.valence,
+          min_popularity: 30,
+          max_popularity: 80,
+        };
+
+      default:
+        // Fallback to mood-safe strategy
+        return this.generateRecommendationStrategy(playlistFeatures, playlistGenres, 'mood_safe_pick', targetTrackCount);
+    }
+  },
+
+  // Helper methods for recommendation strategies
+  extractTopGenres(genres: string[]): string[] {
+    // Extract most common genres, preferring specific ones
+    const genreCount: Record<string, number> = {};
+    genres.forEach(genre => {
+      genreCount[genre] = (genreCount[genre] || 0) + 1;
+    });
+
+    return Object.entries(genreCount)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([genre]) => genre);
+  },
+
+  adjustFeature(value: number, adjustment: number): number {
+    return Math.max(0, Math.min(1, value + adjustment));
+  },
+
+  clampFeature(value: number, range: number): number {
+    return Math.max(0, Math.min(1, value));
+  },
+
+  // 7. Advanced Playlist Similarity Scoring
+  calculatePlaylistSimilarity(
+    playlistA: { features: AudioFeatures[]; genres: string[] },
+    playlistB: { features: AudioFeatures[]; genres: string[] }
+  ) {
+    const audioSimilarity = this.calculateCompatibility(playlistA.features, playlistB.features);
+
+    // Genre overlap calculation
+    const genresA = new Set(playlistA.genres);
+    const genresB = new Set(playlistB.genres);
+    const genreIntersection = new Set([...genresA].filter(x => genresB.has(x)));
+    const genreUnion = new Set([...genresA, ...genresB]);
+    const genreSimilarity = genreUnion.size > 0 ? (genreIntersection.size / genreUnion.size) * 100 : 0;
+
+    // Weighted overall similarity
+    const overallSimilarity = (audioSimilarity * 0.7) + (genreSimilarity * 0.3);
+
+    return {
+      audioSimilarity: Math.round(audioSimilarity),
+      genreSimilarity: Math.round(genreSimilarity),
+      overallSimilarity: Math.round(overallSimilarity),
+      genreOverlap: Array.from(genreIntersection),
+      uniqueGenresA: Array.from(genresA).filter(g => !genresB.has(g)),
+      uniqueGenresB: Array.from(genresB).filter(g => !genresA.has(g)),
+    };
+  },
+
+  // 8. Playlist Evolution Analysis
+  analyzePlaylistEvolution(features: AudioFeatures[]): {
+    energyProgression: 'increasing' | 'decreasing' | 'stable';
+    moodProgression: 'brightening' | 'darkening' | 'stable';
+    complexityProgression: 'simplifying' | 'complexifying' | 'stable';
+    recommendedAdjustments: string[];
+  } {
+    if (features.length < 3) {
+      return {
+        energyProgression: 'stable',
+        moodProgression: 'stable',
+        complexityProgression: 'stable',
+        recommendedAdjustments: ['Add more tracks for evolution analysis'],
+      };
+    }
+
+    // Split into first and second half
+    const midpoint = Math.floor(features.length / 2);
+    const firstHalf = features.slice(0, midpoint);
+    const secondHalf = features.slice(midpoint);
+
+    const avgFirst = this.getAverageFeatures(firstHalf);
+    const avgSecond = this.getAverageFeatures(secondHalf);
+
+    // Analyze progressions
+    const energyDiff = avgSecond.energy - avgFirst.energy;
+    const valenceDiff = avgSecond.valence - avgFirst.valence;
+    const instrumentalDiff = avgSecond.instrumentalness - avgFirst.instrumentalness;
+
+    const energyProgression = Math.abs(energyDiff) < 0.1 ? 'stable' :
+                             energyDiff > 0 ? 'increasing' : 'decreasing';
+
+    const moodProgression = Math.abs(valenceDiff) < 0.1 ? 'stable' :
+                           valenceDiff > 0 ? 'brightening' : 'darkening';
+
+    const complexityProgression = Math.abs(instrumentalDiff) < 0.1 ? 'stable' :
+                                 instrumentalDiff > 0 ? 'complexifying' : 'simplifying';
+
+    // Generate recommendations
+    const recommendations: string[] = [];
+
+    if (energyProgression === 'stable') {
+      recommendations.push('Consider adding tracks with varying energy levels for better flow');
+    }
+
+    if (moodProgression === 'stable' && valenceDiff < 0.2) {
+      recommendations.push('Your playlist maintains a consistent mood - consider adding contrast');
+    }
+
+    if (complexityProgression === 'stable') {
+      recommendations.push('Try mixing instrumental and vocal tracks for more variety');
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push('Your playlist has good natural progression!');
+    }
+
+    return {
+      energyProgression,
+      moodProgression,
+      complexityProgression,
+      recommendedAdjustments: recommendations,
+    };
   },
 
   getAverageFeatures(features: AudioFeatures[]) {

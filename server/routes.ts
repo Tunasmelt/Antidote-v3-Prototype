@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { spotifyService } from "./services/spotify";
 import { analysisService } from "./services/analysis";
 import { fetchExternalPlaylist } from "./services/providers";
+import { analyzeRequestSchema, battleRequestSchema, createPlaylistSchema, recommendationsQuerySchema } from "@shared/schema";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -12,10 +13,15 @@ export async function registerRoutes(
 
   app.post("/api/analyze", async (req, res) => {
     try {
-      const { url } = req.body;
-      if (!url) {
-        return res.status(400).json({ message: "Playlist URL is required" });
+      const validationResult = analyzeRequestSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validationResult.error.errors
+        });
       }
+
+      const { url } = validationResult.data;
 
       const playlistId = spotifyService.parseIdFromUrl(url);
 
@@ -197,10 +203,15 @@ export async function registerRoutes(
 
   app.post("/api/battle", async (req, res) => {
     try {
-      const { url1, url2 } = req.body;
-      if (!url1 || !url2) {
-        return res.status(400).json({ message: "Both playlist URLs are required" });
+      const validationResult = battleRequestSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validationResult.error.errors
+        });
       }
+
+      const { url1, url2 } = validationResult.data;
 
       const resolve = async (url: string) => {
         const id = spotifyService.parseIdFromUrl(url);
@@ -401,33 +412,95 @@ export async function registerRoutes(
 
   app.get("/api/recommendations", async (req, res) => {
     try {
-      const { type, seed_tracks, seed_genres, seed_artists } = req.query;
-      
-      const options: any = { limit: 10 };
-      if (seed_tracks) options.seed_tracks = seed_tracks;
-      if (seed_genres) options.seed_genres = seed_genres;
-      if (seed_artists) options.seed_artists = seed_artists;
+      const validationResult = recommendationsQuerySchema.safeParse(req.query);
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Invalid query parameters",
+          errors: validationResult.error.errors
+        });
+      }
 
-      // Logic for different recommendation types (Decision Assistant)
-      switch (type) {
-        case "mood_safe": // Maintain current vibe (use audio features if we had them, or just seed)
-          options.min_valence = 0.4;
-          options.max_valence = 0.8;
-          break;
-        case "energy_boost":
-          options.min_energy = 0.7;
-          break;
-        case "chill_mode":
-          options.max_energy = 0.4;
-          options.max_tempo = 100;
-          break;
-        case "experimental":
-          options.min_instrumentalness = 0.3;
-          break;
+      const { type, playlistId, seed_tracks, seed_genres, seed_artists } = validationResult.data;
+
+      let options: any = { limit: 10 };
+
+      // If we have a playlist ID, use advanced analysis-based recommendations
+      if (playlistId && type) {
+        try {
+          // Get playlist analysis data from database
+          const analyses = await storage.getAllAnalyses();
+          const playlistAnalysis = analyses.find(a => a.playlistId === parseInt(playlistId as string));
+
+          if (playlistAnalysis && playlistAnalysis.audioDna) {
+            // Convert stored audio DNA back to features array format
+            const mockFeatures = [{
+              energy: playlistAnalysis.audioDna.energy / 100,
+              danceability: playlistAnalysis.audioDna.danceability / 100,
+              valence: playlistAnalysis.audioDna.valence / 100,
+              acousticness: playlistAnalysis.audioDna.acousticness / 100,
+              instrumentalness: playlistAnalysis.audioDna.instrumentalness / 100,
+              tempo: playlistAnalysis.audioDna.tempo,
+              liveness: 0.1, // Default values for missing features
+              speechiness: 0.05,
+            }];
+
+            // Extract genres from genre distribution
+            const genres = playlistAnalysis.genreDistribution?.map(g => g.name) || [];
+
+            // Use advanced recommendation strategy
+            options = analysisService.generateRecommendationStrategy(
+              mockFeatures,
+              genres,
+              type as string,
+              10
+            );
+          }
+        } catch (analysisError) {
+          console.warn("Could not use advanced recommendations, falling back to basic:", analysisError);
+          // Fall through to basic recommendations
+        }
+      }
+
+      // Fallback to basic recommendations if no playlist context or advanced analysis failed
+      if (!options.target_energy && !options.min_energy) {
+        // Basic recommendation logic as fallback
+        if (seed_tracks) options.seed_tracks = seed_tracks;
+        if (seed_genres) options.seed_genres = seed_genres;
+        if (seed_artists) options.seed_artists = seed_artists;
+
+        switch (type) {
+          case "mood_safe":
+            options.min_valence = 0.4;
+            options.max_valence = 0.8;
+            break;
+          case "energy_boost":
+            options.min_energy = 0.7;
+            break;
+          case "chill_mode":
+            options.max_energy = 0.4;
+            options.max_tempo = 100;
+            break;
+          case "experimental":
+            options.min_instrumentalness = 0.3;
+            break;
+          case "rare_match":
+            options.max_popularity = 40;
+            break;
+          case "return_to_familiar":
+            options.min_popularity = 20;
+            options.max_popularity = 70;
+            break;
+          case "short_session":
+            options.max_duration_ms = 300000; // 5 minutes
+            break;
+          case "energy_adjustment":
+            options.min_energy = 0.5; // Moderate boost
+            break;
+        }
       }
 
       const tracks = await spotifyService.getRecommendations(options);
-      
+
       res.json(tracks.map((t: any) => ({
         id: t.id,
         name: t.name,

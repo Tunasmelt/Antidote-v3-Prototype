@@ -1,4 +1,7 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+// @ts-ignore
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -21,6 +24,17 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Allow mobile app (Capacitor WebView) to call the API
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+app.options("*", cors());
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -85,14 +99,18 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
+  const host = process.env.HOST || "127.0.0.1";
+  const onListen = () => {
+    const addr = httpServer.address();
+    if (typeof addr === "object" && addr) {
+      log(`serving on ${addr.address}:${addr.port}`);
+    } else {
       log(`serving on port ${port}`);
-    },
-  );
+    }
+  };
+  if (process.platform === "win32") {
+    httpServer.listen(port, onListen);
+  } else {
+    httpServer.listen(port, host, onListen);
+  }
 })();

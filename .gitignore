@@ -5,4 +5,23 @@ server/public
 vite.config.ts.*
 *.tar.gz
 android/app/build/
+android/wrapper/
 .local/
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+# Environment files (keep secrets out of version control)
+.env
+.env.*
+# OS files
+Thumbs.db
+.DS_Store
+# Test coverage
+coverage/
+*.lcov
+# Build artifacts
+build/
+.gradle/

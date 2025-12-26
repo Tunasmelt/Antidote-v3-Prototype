@@ -66,12 +66,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllAnalyses(): Promise<(Analysis & { playlist: Playlist })[]> {
-    const allAnalyses = await db.select().from(analyses).orderBy(desc(analyses.createdAt));
-    const result = await Promise.all(allAnalyses.map(async (a) => {
-      const [p] = await db.select().from(playlists).where(eq(playlists.id, a.playlistId!));
-      return { ...a, playlist: p };
-    }));
-    return result as any;
+    // Use a single query with join to avoid N+1 problem
+    const result = await db
+      .select()
+      .from(analyses)
+      .innerJoin(playlists, eq(analyses.playlistId, playlists.id))
+      .orderBy(desc(analyses.createdAt));
+
+    return result.map(row => ({
+      ...row.analyses,
+      playlist: row.playlists,
+    })) as any;
   }
 
   async getAllPlaylists(): Promise<Playlist[]> {
