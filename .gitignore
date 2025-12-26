@@ -7,6 +7,7 @@ vite.config.ts.*
 android/app/build/
 android/wrapper/
 .local/
+<<<<<<< HEAD
 # IDE files
 .idea/
 .vscode/
@@ -25,3 +26,6 @@ coverage/
 # Build artifacts
 build/
 .gradle/
+=======
+.env
+>>>>>>> b92ca3190af1dd32b0f8c8f57b761d8495234e53
